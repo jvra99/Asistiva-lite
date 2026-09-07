@@ -609,6 +609,8 @@ const allowedOrigins = [
   "https://grupovhmc.cl",
   "https://www.grupovhmc.cl",
   "https://app.grupovhmc.cl",
+  "https://asistiva-lite.cl",
+  "https://www.asistiva-lite.cl",
   "http://localhost:5173",
   "http://localhost:3000",
 ];
@@ -1387,7 +1389,7 @@ app.post("/api/qr/generar", async (req, res) => {
   const imagen_base64 = req.body?.imagen_base64 || "";
   if (!pasillo || !nivel) return res.status(400).json({ error: "Pasillo y nivel requeridos" });
   try {
-    const url        = `https://www.grupovhmc.cl/atencion/?p=${encodeURIComponent(pasillo)}&n=${encodeURIComponent(nivel.replace("N",""))}`;
+    const url        = `https://asistiva-lite.cl/atencion/?p=${encodeURIComponent(pasillo)}&n=${encodeURIComponent(nivel.replace("N",""))}`;
     const pngBase64  = await QRCode.toDataURL(url, { width: 300, margin: 2 });
     const { rows } = await pool.query(
       `INSERT INTO qr_generados (pasillo,nivel,url,titulo,descripcion,imagen_url,imagen_data,created_at)
