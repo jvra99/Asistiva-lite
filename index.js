@@ -16,7 +16,7 @@ const server = http.createServer(app);
 app.set("trust proxy", true);
 // =========================
 // BASE DE DATOS
-// =========================
+// =======================
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: false,
