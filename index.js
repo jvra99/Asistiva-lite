@@ -16,7 +16,7 @@ const server = http.createServer(app);
 app.set("trust proxy", true);
 // =========================
 // BASE DE DATOS
-// =======================
+// =========================
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: false,
@@ -311,8 +311,14 @@ function programarChequeoPorVencer(createdAtMs) {
 // EMAIL
 // =========================
 const { Resend } = require("resend");
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Solo inicializar Resend si hay API key. Sin key, la app arranca igual y
+// los emails simplemente se omiten (en vez de crashear al construir Resend).
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 async function enviarEmail(to, subject, html) {
+  if (!resend) {
+    console.log(`✉️ Email omitido (sin RESEND_API_KEY) para ${to}`);
+    return;
+  }
   try {
     await resend.emails.send({ from: "Asistiva Sodimac <onboarding@resend.dev>", to, subject, html });
     console.log(`✅ Email enviado a ${to}`);
