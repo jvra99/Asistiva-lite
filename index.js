@@ -883,36 +883,10 @@ app.post("/api/atencion", async (req, res) => {
       vendedor: null, rating: null,
     };
     io.emit("solicitud_nueva", nuevaSolicitud);
-    elegirVendedor(pasillo || fila).then(async vendedorElegido => {
-      if (!vendedorElegido) return;
-      const { rows } = await pool.query(
-        `UPDATE solicitudes SET vendedor=$1, vendedor_id=$2, estado='asignada', updated_at=NOW()
-         WHERE id=$3
-         RETURNING id, numero_qr AS "numeroQR", fila, pasillo, estado, vendedor,
-           vendedor_id AS "vendedorId", rating, cancelacion_tipo AS "cancelacionTipo",
-           created_at AS "createdAt", updated_at AS "updatedAt"`,
-        [vendedorElegido.nombre, vendedorElegido.id, id]
-      );
-      if (rows.length > 0) {
-        const sol = safeRow(rows[0]);
-        io.emit("solicitud_asignada", sol);
-        await redistribuirSaturados();
-        // Notificar al vendedor
-        const { rows: cargaRows } = await pool.query(
-          `SELECT COUNT(*) AS cnt FROM solicitudes
-           WHERE vendedor_id=$1 AND estado IN ('pendiente','asignada','en_curso')
-             AND DATE(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Santiago')=(CURRENT_TIMESTAMP AT TIME ZONE 'America/Santiago')::date`,
-          [vendedorElegido.id]
-        );
-        const totalActivas = Number(cargaRows[0]?.cnt || 1);
-        await sendPush(
-          vendedorElegido.id,
-          '🛒 Nueva solicitud asignada',
-          `Pasillo ${sol.pasillo || sol.fila || 'General'} · N° ${sol.numeroQR}. Tienes ${totalActivas} solicitud${totalActivas > 1 ? 'es' : ''} activa${totalActivas > 1 ? 's' : ''}.`,
-          { tipo: 'nueva_solicitud', solicitudId: sol.id }
-        );
-      }
-    }).catch(err => console.error("❌ Error asignación:", err.message));
+    // ASISTIVA LITE: sin asignación automática de vendedor. La solicitud
+    // queda en estado 'pendiente' y se categoriza como "por vencer" en el
+    // frontend según el tiempo transcurrido (igual que antes), pero no se
+    // le asigna ningún vendedor ni se notifica a nadie por push.
     return res.json({ id: String(id), numero, createdAt: nuevaSolicitud.createdAt, vendedor: null, estado: ESTADOS.PENDIENTE });
   } catch (err) {
     console.error("❌ Error creando solicitud:", err.message);
