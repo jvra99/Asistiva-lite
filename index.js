@@ -42,7 +42,7 @@ function safeRow(row) {
   return r;
 }
 
-// Tablas secundarias (las base — usuarios, solicitudes, calificaciones —
+// Tablas secundarias (las base — usuarios y solicitudes —
 // se crean con crear_tablas_base.sql)
 pool.connect()
   .then(async (client) => {
@@ -205,7 +205,7 @@ app.get("/api/health/db", async (req, res) => {
 // SOLICITUDES — panel (Dashboard y Reportes)
 // =========================
 const CAMPOS_SOLICITUD = `id, numero_qr AS "numeroQR", fila, pasillo, nivel, qr_id AS "qrId",
-  estado, rating, cancelacion_tipo AS "cancelacionTipo", hora_atendida AS "horaAtendida",
+  estado, cancelacion_tipo AS "cancelacionTipo", hora_atendida AS "horaAtendida",
   created_at AS "createdAt", updated_at AS "updatedAt", en_curso_at AS "enCursoAt"`;
 
 app.get("/solicitudes", async (req, res) => {
@@ -286,10 +286,10 @@ app.post("/api/atencion", async (req, res) => {
 
     const nuevaSolicitud = {
       id: String(id), numeroQR: numero, fila, pasillo, nivel, qr_id,
-      createdAt: new Date().toISOString(), estado: ESTADOS.PENDIENTE, rating: null,
+      createdAt: new Date().toISOString(), estado: ESTADOS.PENDIENTE,
     };
     io.emit("solicitud_nueva", nuevaSolicitud); // → aparece en el panel
-    return res.json({ id: String(id), numero, createdAt: nuevaSolicitud.createdAt, vendedor: null, estado: ESTADOS.PENDIENTE });
+    return res.json({ id: String(id), numero, createdAt: nuevaSolicitud.createdAt, estado: ESTADOS.PENDIENTE });
   } catch (err) {
     console.error("❌ Error creando solicitud:", err.message);
     res.status(500).json({ error: err.message });
@@ -299,7 +299,7 @@ app.post("/api/atencion", async (req, res) => {
 app.get("/api/atencion/:id", async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT id, numero_qr AS numero, vendedor, estado, created_at AS "createdAt", rating, fila AS punto
+      `SELECT id, numero_qr AS numero, estado, created_at AS "createdAt", fila AS punto
        FROM solicitudes WHERE id=$1`, [req.params.id]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: "Solicitud no encontrada" });
@@ -323,25 +323,6 @@ app.post("/api/atencion/:id/estado", async (req, res) => {
     if (result.rows.length === 0) return res.status(404).json({ error: "Solicitud no encontrada" });
     io.emit("solicitud_estado", safeRow(result.rows[0]));
     res.json({ ok: true, id: String(result.rows[0].id), estado: result.rows[0].estado });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// Calificación con estrellas de /atencion/. El panel ya no la muestra, pero
-// se mantiene mientras la página del cliente siga pidiendo calificar.
-app.post("/api/atencion/:id/calificacion", async (req, res) => {
-  const rating = Number(req.body?.rating);
-  if (![1, 2, 3, 4].includes(rating)) return res.status(400).json({ error: "rating inválido" });
-  try {
-    const result = await pool.query(
-      `UPDATE solicitudes SET rating=$1, updated_at=NOW() WHERE id=$2 RETURNING id, rating`,
-      [rating, req.params.id]
-    );
-    if (result.rows.length === 0) return res.status(404).json({ error: "Solicitud no encontrada" });
-    await pool.query(
-      `INSERT INTO calificaciones (solicitud_id,puntuacion) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
-      [req.params.id, rating]
-    ).catch(() => {});
-    res.json({ ok: true, id: String(result.rows[0].id), rating });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
