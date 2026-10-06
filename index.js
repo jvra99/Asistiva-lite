@@ -79,6 +79,12 @@ pool.connect()
       .then(() => console.log("✅ password_hash OK")).catch(e => console.error("⚠️", e.message));
     await pool.query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT FALSE`)
       .then(() => console.log("✅ must_change_password OK")).catch(() => {});
+    // Pasillo y Área se escriben a mano: sin límite corto de largo.
+    // (El área se guarda en la columna "nivel" para no cambiar la estructura.)
+    await pool.query(`ALTER TABLE qr_generados ALTER COLUMN pasillo TYPE TEXT, ALTER COLUMN nivel TYPE TEXT`)
+      .then(() => console.log("✅ qr_generados pasillo/área TEXT OK")).catch(e => console.error("⚠️", e.message));
+    await pool.query(`ALTER TABLE solicitudes ALTER COLUMN pasillo TYPE TEXT, ALTER COLUMN nivel TYPE TEXT, ALTER COLUMN fila TYPE TEXT`)
+      .then(() => console.log("✅ solicitudes pasillo/área TEXT OK")).catch(e => console.error("⚠️", e.message));
   })
   .catch(err => console.error("❌ Error conectando a PostgreSQL:", err.message));
 
@@ -252,9 +258,10 @@ app.post("/solicitudes/:id/asignar", async (req, res) => {
 // ATENCIÓN — página del cliente (/atencion/ tras escanear el QR)
 // =========================
 app.post("/api/atencion", async (req, res) => {
-  const { punto, p, n, q } = req.body || {};
-  const pasillo = p || null;
-  const nivel   = n ? `N${n}` : null;
+  const { punto, p, n, a, q } = req.body || {};
+  const pasillo = p ? String(p).slice(0, 60) : null;
+  // QR nuevos traen el área (?a=); los QR antiguos traen el nivel (?n=1)
+  const nivel   = a ? String(a).slice(0, 80) : (n ? `N${n}` : null);
   const qr_id   = q || null;
   const fila    = pasillo || punto || "General";
   const id      = Date.now();
@@ -299,7 +306,7 @@ app.post("/api/atencion", async (req, res) => {
 app.get("/api/atencion/:id", async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT id, numero_qr AS numero, estado, created_at AS "createdAt", fila AS punto
+      `SELECT id, numero_qr AS numero, estado, created_at AS "createdAt", updated_at AS "updatedAt", fila AS punto
        FROM solicitudes WHERE id=$1`, [req.params.id]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: "Solicitud no encontrada" });
@@ -517,16 +524,22 @@ app.get("/api/qr", async (req, res) => {
 });
 
 app.post("/api/qr/generar", async (req, res) => {
-  const { pasillo, nivel, titulo = "", descripcion = "", imagen_url = "", imagen_base64 = "" } = req.body || {};
-  if (!pasillo || !nivel) return res.status(400).json({ error: "Pasillo y nivel requeridos" });
+  const { titulo = "", descripcion = "", imagen_url = "", imagen_base64 = "" } = req.body || {};
+  const pasillo = String(req.body?.pasillo || "").trim();
+  const area    = String(req.body?.area ?? req.body?.nivel ?? "").trim();   // el área se guarda en "nivel"
+  if (!pasillo || !area) return res.status(400).json({ error: "Pasillo y área requeridos" });
   try {
-    const url       = `https://asistiva-lite.cl/atencion/?p=${encodeURIComponent(pasillo)}&n=${encodeURIComponent(nivel.replace("N", ""))}`;
-    const pngBase64 = await QRCode.toDataURL(url, { width: 300, margin: 2 });
-    const { rows } = await pool.query(
+    // 1) Crear el registro para obtener su id
+    const { rows: ins } = await pool.query(
       `INSERT INTO qr_generados (pasillo,nivel,url,titulo,descripcion,imagen_url,imagen_data,created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,NOW()) RETURNING *`,
-      [pasillo, nivel, url, titulo, descripcion, imagen_url || "", imagen_base64 || ""]
+       VALUES ($1,$2,'',$3,$4,$5,$6,NOW()) RETURNING id`,
+      [pasillo, area, titulo, descripcion, imagen_url || "", imagen_base64 || ""]
     );
+    const id = ins[0].id;
+    // 2) URL del QR: pasillo + área + id del QR (para saber exactamente qué QR se escaneó)
+    const url = `https://asistiva-lite.cl/atencion/?p=${encodeURIComponent(pasillo)}&a=${encodeURIComponent(area)}&q=${id}`;
+    const { rows } = await pool.query(`UPDATE qr_generados SET url=$1 WHERE id=$2 RETURNING *`, [url, id]);
+    const pngBase64 = await QRCode.toDataURL(url, { width: 300, margin: 2 });
     res.json({ ok: true, qr: rows[0], pngBase64 });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
